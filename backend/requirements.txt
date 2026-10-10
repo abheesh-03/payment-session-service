@@ -1,0 +1,13 @@
+# Runtime
+fastapi==0.143.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.0
+pydantic-settings==2.15.0
+SQLAlchemy==2.1.4
+alembic==1.20.0
+psycopg[binary]==3.3.6
+redis==8.1.0
+
+# Testing
+pytest==9.1.1
+httpx==0.28.1
