@@ -124,11 +124,15 @@ identifies one payment of one session.
 | Different key, already-paid session | `409 SESSION_ALREADY_PAID` |
 | Failed attempt (provider down, expired, invalid) | no receipt — the key is not consumed |
 
-Raw keys are never stored or logged, only their digest.
+The backend stores only key digests and does not log raw keys. The browser
+retains the attempt key in `sessionStorage` for retries.
 
 ### Locking and concurrency
 
-Every pay runs in **one PostgreSQL transaction** and always takes locks in the same order:
+A validated Redis cache hit for the same request returns the committed receipt
+directly (see below). Otherwise — on any cache miss or Redis problem — the pay
+falls back to PostgreSQL, runs in **one PostgreSQL transaction**, and always takes
+locks in the same order:
 
 1. `pg_advisory_xact_lock` derived from the key digest — serializes requests that
    share a key (a hash collision only makes two keys wait for each other).
@@ -148,10 +152,12 @@ success, one conflict).
 
 Redis caches **committed** successful receipts under
 `payment-session-service:pay-receipt:<key digest>` for `RECEIPT_CACHE_TTL_SECONDS`
-(default 600). It is written only after the PostgreSQL commit, replayed only when the
-cached request fingerprint matches, and validated on read. A miss, an expired or
-malformed entry, or any Redis error falls back to PostgreSQL; a failed cache write
-never affects a committed payment. Redis is never used for locking.
+(default 600). It is written only after the PostgreSQL commit and validated on
+read. A validated hit whose request fingerprint matches returns the committed
+receipt directly, without opening the PostgreSQL transaction or taking locks. A
+miss, a fingerprint mismatch, an expired or malformed entry, or any Redis error
+falls back to PostgreSQL and the lock sequence above; a failed cache write never
+affects a committed payment. Redis is never used for locking.
 
 The Redis client is configured to fail fast (no retries, 1 s connect/socket
 timeouts), so an outage falls back to PostgreSQL quickly. `/health` still reports
@@ -281,12 +287,15 @@ The application never creates tables at startup; schema changes go through Alemb
 
 ### 4. Frontend
 
-Select Node 24 for this project without changing your global default — either
-`nvm use` (reads `frontend/.nvmrc`) or prefix commands with an existing Node 24
-install, e.g. `PATH=/path/to/node-v24/bin:$PATH`:
+Run these in a separate terminal, starting from the repository root. Select Node 24
+for this project without changing your global default: run `nvm use` inside `frontend/`
+(it reads `frontend/.nvmrc`), or instead prefix the commands with an existing
+Node 24 install, e.g. `PATH=/path/to/node-v24/bin:$PATH npm ci`.
 
 ```sh
+# from the repository root, in a separate terminal
 cd frontend
+nvm use                               # or: export PATH=/path/to/node-v24/bin:$PATH
 node --version                        # v24.x
 npm ci
 npm run dev                           # development server on 127.0.0.1:3020
